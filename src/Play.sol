@@ -3,6 +3,8 @@ pragma solidity 0.8.9;
 import { Pinball } from "./Pinball.sol";
 
 contract Play {
+    event Log(uint);
+
     bytes ball;
     uint committedBlockNumber;
 
@@ -100,7 +102,16 @@ contract Play {
         commands.push(Command(
             FLIPRIGHT,
             fliprightDataOffset2,
-            0x000e
+            0x0022
+        ));
+
+        // bytes2 flipleftDataOffset2 = nextDataOffset();
+        // need 4 bytes for the selector and 256 for the bumpers
+        bytes2 flipleftDataOffset2 = 0x00fb; // 0xff - 4
+        commands.push(Command(
+            FLIPLEFT,
+            flipleftDataOffset2, // data offset
+            0x0104  // 256 + 4
         ));
 
         // cmd offset
@@ -149,6 +160,36 @@ contract Play {
 
         for (uint i = 0; i < 10; i += 1) {
             writeBytes2(uint16(fliprightDataOffset2) + 4 + i * skip, bytes2(vector[i]));
+        }
+
+        // data for 2nd flip left
+        writeBytes4(uint16(flipleftDataOffset2), 0x50407060); // bumpers!
+        uint expectedLocationAtBumpers = 0;
+        prepareBallForBumpers(0x100, expectedLocationAtBumpers);
+    }
+
+    function countBumpers(uint offset, uint expectedLocationAtBumpers) private returns(uint) {
+        uint bumpers = 0;
+
+        // count the number in the current configuration
+        for (uint i = 0; i < 256; i++) {
+            if (uint8(ball[offset + i]) == expectedLocationAtBumpers) {
+                bumpers++;
+            }
+        }
+
+        emit Log(bumpers);
+        return bumpers;
+    }
+
+    function prepareBallForBumpers(uint offset, uint expectedLocationAtBumpers) private {
+        // we need exactly 64
+        uint bumpers = countBumpers(offset, expectedLocationAtBumpers);
+        require(bumpers >= 64, "not enough bumpers!");
+
+        // fill the end of the buffer until we get to the number we want
+        for (uint i = 0; i <= (bumpers - 64); i++) {
+            ball[offset + 256 - 1 - i] = 0x42;
         }
     }
 

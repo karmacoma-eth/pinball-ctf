@@ -87,6 +87,7 @@ contract Pinball {
     event NewMultiplier(uint multiplier);
     event Tilt(uint tiltSpend,uint tiltAmount, uint tiltPrice);
     event Accumulator(uint accumulator);
+    event Bumpers(uint bumpers);
 
     struct Submission {
         address who;
@@ -242,6 +243,8 @@ contract Pinball {
                     if (state.readUint8At(dataOff) == uint8(state.location)) bumpers++;
                     dataOff++;
                 }
+
+                emit Bumpers(bumpers);
 
                 if (bumpers == 64) {
                     state.baseScore += state.readRand() % 500;
@@ -411,6 +414,7 @@ contract Pinball {
                     }
 
                     state.location = 0;
+                    emit NewLocation(0);
                     state.missionAvailable = false;
                 } else {
                     emit Message("MISSION ABORTED");
