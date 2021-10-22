@@ -394,13 +394,9 @@ contract Pinball {
                 unchecked {
                     for (uint i = 0; i < 10; i++) {
                         accumulator *= uint32(state.readUint16At(dataOff));
-                        // emit Accumulator(accumulator);
-
                         dataOff += uint16(skip);
                     }
                 }
-
-                emit Accumulator(accumulator);
 
                 if (accumulator == 0x020c020c) {
                     if (state.currentMission == 1) {

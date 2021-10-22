@@ -3,17 +3,20 @@ pragma solidity ^0.8.9;
 
 import "ds-test/test.sol";
 
-import "./Accumulator.sol";
-
-
 contract AccumulatorTest is DSTest {
-    Accumulator accumulator;
+    function youShallNotPass(uint16[10] memory state) pure public {
+        uint32 accumulator = 1;
 
-    function setUp() public {
-        accumulator = new Accumulator();
+        unchecked {
+            for (uint i = 0; i < 10; i++) {
+                accumulator *= uint32(state[i]);
+            }
+        }
+
+        require(accumulator == 0x020c020c, "incorrect accumulator");
     }
 
     function proveFail_weShallActuallyPass(uint16[10] memory state) public {
-        accumulator.youShallNotPass(state);
+        youShallNotPass(state);
     }
 }
