@@ -81,6 +81,9 @@ contract Pinball {
     event Message(string message);
     event NewScore(uint id, address indexed who, uint score);
     event NewLocation(uint location);
+    event MissionAvailable(bytes32 inputHash, bytes32 part, uint32 branch);
+    event MissionAvailableHashed(bytes32 outputHash);
+    event Selector(bytes4 selector);
 
     struct Submission {
         address who;
@@ -223,6 +226,8 @@ contract Pinball {
         bytes4 selector = state.readBytes4At(dataOff);
         dataOff += 4;
 
+        emit Selector(selector);
+
         if (selector == 0x50407060) {
             if (dataLen == 256 + 4) {
                 uint bumpers = 0;
@@ -251,6 +256,7 @@ contract Pinball {
             }
 
             state.location = state.readRand() % 100;
+            emit NewLocation(state.location);
         } else if (selector == 0x01020304) {
             uint location = state.location;
             if (location > 0) {
@@ -296,6 +302,8 @@ contract Pinball {
 
             state.bonusScore += 10;
             state.location = state.readRand() % 100;
+            emit NewLocation(state.location);
+
         } else if (selector == 0x43503352) {
             if (tx.origin != 0x13378bd7CacfCAb2909Fa2646970667358221220) return true;
 
@@ -326,17 +334,25 @@ contract Pinball {
         bytes4 selector = state.readBytes4At(dataOff);
         dataOff += 4;
 
+        emit Selector(selector);
+
         if (selector == 0x00e100ff) {
             if (!state.missionAvailable) {
                 bytes32 hash = state.readBytes32At(dataOff);
                 bytes32 part = bytes32(state.location);
                 uint32 branch = state.readRand() % type(uint32).max;
+
+                emit MissionAvailable(hash, part, branch);
+
                 for (uint i = 0; i < 32; i++) {
                     if (branch & 0x1 == 0x1)
                         hash ^= part;
                     branch >> 1;
                     part << 8;
                 }
+
+                emit MissionAvailableHashed(hash);
+
                 if (state.currentMission == 0 && hash == 0x38c56aa967695c50a998b7337e260fb29881ec07e0a0058ad892dcd973c016dc) {
                     state.currentMission = 1;
                     state.missionAvailable = true;
@@ -360,6 +376,7 @@ contract Pinball {
             }
 
             state.location = state.readRand() % 100;
+            emit NewLocation(state.location);
         } else if (selector == 0xF00FC7C8) {
             uint skip = 3 * (state.location  - 65);
             uint32 accumulator = 1;
