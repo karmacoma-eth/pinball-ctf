@@ -72,8 +72,8 @@ contract Play {
 
         // cmd 3
         ball.push(FLIPLEFT);
-        ball.push("\x00");
-        ball.push("\xfb"); // data offset
+        ball.push("\x01");
+        ball.push("\x23"); // data offset, 0xff + 4 + 32
         ball.push("\x00");
         ball.push("\x00");
 
@@ -82,8 +82,6 @@ contract Play {
         }
 
         // data
-        writeBytes4(0xfb, 0x01020304);
-
         writeBytes4(0xff, 0x00e100ff);
 
         bytes32 mission1Hash = 0x38c56aa967695c50a998b7337e260fb29881ec07e0a0058ad892dcd973c016dc;
@@ -92,6 +90,12 @@ contract Play {
             0x0000000000000000000000000000000000000000000000000000000000000043, // part
             22292); // branch
         writeBytes32(0xff + 4, inputHash);
+
+        // data for flipleft
+        writeBytes4(0x123, 0x01020304);
+        for (uint i = 0; i < 10; i += 1) {
+            ball[0x127 + i] = "\x65";
+        }
     }
 
     function insertCoin() public {
