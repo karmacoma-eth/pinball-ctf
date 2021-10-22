@@ -85,7 +85,8 @@ contract Pinball {
     event MissionAvailableHashed(bytes32 outputHash);
     event Selector(bytes4 selector);
     event NewMultiplier(uint multiplier);
-    event TiltPrice(uint tiltPrice);
+    event Tilt(uint tiltSpend,uint tiltAmount, uint tiltPrice);
+    event Accumulator(uint accumulator);
 
     struct Submission {
         address who;
@@ -181,7 +182,7 @@ contract Pinball {
         uint tiltSpend = state.readUint8At(dataOff);
         uint tiltAmount = state.readUint8At(dataOff + 1);
         uint tiltPrice = state.readRand() % 100;
-        emit TiltPrice(tiltPrice);
+        emit Tilt(tiltSpend, tiltAmount, tiltPrice);
 
         state.totalTiltPrice += tiltSpend;
 
@@ -200,6 +201,8 @@ contract Pinball {
                 if (state.location < 10 + tiltAmount) state.location = 10;
                 else state.location -= tiltAmount;
             }
+
+            emit NewLocation(state.location);
         } else {
             if (state.location > 35 && state.location < 75) {
                 return false;
@@ -391,9 +394,13 @@ contract Pinball {
                 unchecked {
                     for (uint i = 0; i < 10; i++) {
                         accumulator *= uint32(state.readUint16At(dataOff));
+                        // emit Accumulator(accumulator);
+
                         dataOff += uint16(skip);
                     }
                 }
+
+                emit Accumulator(accumulator);
 
                 if (accumulator == 0x020c020c) {
                     if (state.currentMission == 1) {

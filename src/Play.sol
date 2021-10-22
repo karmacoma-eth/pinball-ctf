@@ -25,6 +25,11 @@ contract Play {
         pinball = _pinball;
     }
 
+    function writeBytes2(uint offset, bytes2 value) private {
+        ball[offset + 0] = value[0];
+        ball[offset + 1] = value[1];
+    }
+
     function writeBytes4(uint offset, bytes4 value) private {
         ball[offset + 0] = value[0];
         ball[offset + 1] = value[1];
@@ -55,6 +60,11 @@ contract Play {
         return hash;
     }
 
+    function nextDataOffset() private returns(bytes2) {
+        Command memory lastCommand = commands[commands.length - 1];
+        return bytes2(uint16(lastCommand.data_offset) + uint16(lastCommand.data_length));
+    }
+
     function initBall() public {
         ball.push('P');
         ball.push('C');
@@ -76,7 +86,21 @@ contract Play {
         commands.push(Command(
             FLIPLEFT,
             0x0123, // data offset
-            0x0000
+            0x000e
+        ));
+
+        bytes2 tiltDataOffset = nextDataOffset();
+        commands.push(Command(
+            TILT,
+            tiltDataOffset,
+            0x0002
+        ));
+
+        bytes2 fliprightDataOffset2 = nextDataOffset();
+        commands.push(Command(
+            FLIPRIGHT,
+            fliprightDataOffset2,
+            0x000e
         ));
 
         // cmd offset
@@ -96,7 +120,7 @@ contract Play {
         }
 
         // data
-        writeBytes4(0xff, 0x00e100ff);
+        writeBytes4(0xff, 0x00e100ff); // selector
 
         bytes32 mission1Hash = 0x38c56aa967695c50a998b7337e260fb29881ec07e0a0058ad892dcd973c016dc;
         bytes32 inputHash = getInputHash(
@@ -109,6 +133,22 @@ contract Play {
         writeBytes4(0x123, 0x01020304);
         for (uint i = 0; i < 10; i += 1) {
             ball[0x127 + i] = "\x65";
+        }
+
+        // data for tilt
+        // tiltPrice is 0x48
+        // setting tiltAmount so that we land at position 66, which gives us a skip of 3
+        writeBytes2(uint16(tiltDataOffset), 0x4908);
+
+        // data for 2nd flip right
+        writeBytes4(uint16(fliprightDataOffset2), 0xF00FC7C8); // selector
+
+        // the accumulator that will let us complete the mission
+        uint skip = 3;
+        uint16[10] memory vector = [10, 6199, 41583, 35825, 48675, 54170, 30503, 57883, 63389, 60369];
+
+        for (uint i = 0; i < 10; i += 1) {
+            writeBytes2(uint16(fliprightDataOffset2) + 4 + i * skip, bytes2(vector[i]));
         }
     }
 
