@@ -84,6 +84,8 @@ contract Pinball {
     event MissionAvailable(bytes32 inputHash, bytes32 part, uint32 branch);
     event MissionAvailableHashed(bytes32 outputHash);
     event Selector(bytes4 selector);
+    event NewMultiplier(uint multiplier);
+    event TiltPrice(uint tiltPrice);
 
     struct Submission {
         address who;
@@ -179,6 +181,7 @@ contract Pinball {
         uint tiltSpend = state.readUint8At(dataOff);
         uint tiltAmount = state.readUint8At(dataOff + 1);
         uint tiltPrice = state.readRand() % 100;
+        emit TiltPrice(tiltPrice);
 
         state.totalTiltPrice += tiltSpend;
 
@@ -286,14 +289,17 @@ contract Pinball {
                         if (state.currentPowerup == 0) {
                             state.currentPowerup = 1;
                             state.scoreMultiplier += 2;
+                            emit NewMultiplier(state.scoreMultiplier);
                             emit Message("CRAFTED WITH THE FINEST CACAOS");
                         } else if (state.currentPowerup == 1) {
                             state.currentPowerup = 2;
                             state.scoreMultiplier += 3;
+                            emit NewMultiplier(state.scoreMultiplier);
                             emit Message("LOOKS PRETTY GOOD IN YELLOW");
                         } else if (state.currentPowerup == 2) {
                             state.currentPowerup = 3;
                             state.scoreMultiplier += 5;
+                            emit NewMultiplier(state.scoreMultiplier);
                             emit Message("JACKPOT >> DO YOU HAVE TIME A MOMENT TO TALK ABOUT DAPPTOOLS?");
                         }
                     }

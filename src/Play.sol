@@ -8,6 +8,19 @@ contract Play {
 
     Pinball immutable pinball;
 
+    bytes1 PULL = "\x01";
+    bytes1 TILT = "\x02";
+    bytes1 FLIPRIGHT = "\x04";
+    bytes1 FLIPLEFT = "\x03";
+
+    struct Command {
+        bytes1 id;
+        bytes2 data_offset;
+        bytes2 data_length;
+    }
+
+    Command[] commands;
+
     constructor(Pinball _pinball) {
         pinball = _pinball;
     }
@@ -25,6 +38,11 @@ contract Play {
         }
     }
 
+    function pushBytes2(bytes2 value) private {
+        ball.push(value[0]);
+        ball.push(value[1]);
+    }
+
     function getInputHash(bytes32 desiredHash, bytes32 part, uint32 branch) pure public returns(bytes32) {
         bytes32 hash = desiredHash;
         for (uint i = 0; i < 32; i++) {
@@ -38,44 +56,40 @@ contract Play {
     }
 
     function initBall() public {
-        bytes1 PULL = "\x01";
-        bytes1 TILT = "\x02";
-        bytes1 FLIPRIGHT = "\x04";
-        bytes1 FLIPLEFT = "\x03";
-
         ball.push('P');
         ball.push('C');
         ball.push('T');
         ball.push('F');
 
+        commands.push(Command(
+            PULL,
+            0x0000,
+            0x0000
+        ));
+
+        commands.push(Command(
+            FLIPRIGHT,
+            0x00ff, // data offset
+            0x0000
+        ));
+
+        commands.push(Command(
+            FLIPLEFT,
+            0x0123, // data offset
+            0x0000
+        ));
+
         // cmd offset
-        ball.push("\x00");
-        ball.push("\x08");
+        pushBytes2(0x0008);
 
         // cmd len
-        ball.push("\x00");
-        ball.push("\x03");
+        pushBytes2(bytes2(uint16(commands.length)));
 
-        // cmd 1
-        ball.push(PULL);
-        ball.push("\x00");
-        ball.push("\x00");
-        ball.push("\x00");
-        ball.push("\x00");
-
-        // cmd 2
-        ball.push(FLIPRIGHT);
-        ball.push("\x00");
-        ball.push("\xff"); // data offset
-        ball.push("\x00");
-        ball.push("\x00");
-
-        // cmd 3
-        ball.push(FLIPLEFT);
-        ball.push("\x01");
-        ball.push("\x23"); // data offset, 0xff + 4 + 32
-        ball.push("\x00");
-        ball.push("\x00");
+        for (uint i = 0; i < commands.length; i++) {
+            ball.push(commands[i].id);
+            pushBytes2(commands[i].data_offset);
+            pushBytes2(commands[i].data_length);
+        }
 
         while (ball.length < 512) {
             ball.push("\x00");
