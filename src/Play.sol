@@ -105,6 +105,8 @@ contract Play {
             0x0022
         ));
 
+        bytes2 fliprightDataOffset3 = nextDataOffset();
+
         // bytes2 flipleftDataOffset2 = nextDataOffset();
         // need 4 bytes for the selector and 256 for the bumpers
         bytes2 flipleftDataOffset2 = 0x00fb; // 0xff - 4
@@ -112,6 +114,12 @@ contract Play {
             FLIPLEFT,
             flipleftDataOffset2, // data offset
             0x0104  // 256 + 4
+        ));
+
+        commands.push(Command(
+            FLIPRIGHT,
+            fliprightDataOffset3,
+            0x0024  // selector + 32 byte hash
         ));
 
         // cmd offset
@@ -164,6 +172,18 @@ contract Play {
 
         // data for 2nd flip left
         writeBytes4(uint16(flipleftDataOffset2), 0x50407060); // bumpers!
+
+        // data for 3rd right flip (select mission 2)
+        writeBytes4(uint16(fliprightDataOffset3), 0x00e100ff); // selector
+        bytes32 mission2Hash = 0x8f038627eb6f3adaddcfcb0c86b53e4e175b1d16ede665306e59d9752c7b2767;
+        bytes32 inputHash2 = getInputHash(
+            mission2Hash,
+            0x0000000000000000000000000000000000000000000000000000000000000047, // part
+            22292); // branch
+        writeBytes32(uint16(fliprightDataOffset3) + 4, inputHash2);
+
+
+        // finalize the second half of the ball for BUMPERS
         uint expectedLocationAtBumpers = 0;
         prepareBallForBumpers(0x100, expectedLocationAtBumpers);
     }
