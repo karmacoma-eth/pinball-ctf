@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.9;
 
 import { Pinball } from "./Pinball.sol";
@@ -15,20 +16,21 @@ contract Play {
         bytes32(0x46453a3e029b77b65084452c82951b4126bd91b5592ef3b88a8822e8c59b02e8)
     ];
 
-    bytes1 constant PULL = "\x01";
-    bytes1 constant TILT = "\x02";
-    bytes1 constant FLIPLEFT = "\x03";
-    bytes1 constant FLIPRIGHT = "\x04";
-
-    // a virtual command that actually maps to FLIPLEFT
-    // this is because the data for bumpers is not adjacent with the data of the other commands
-    // (the second half of the ball is reserved for it)
-    bytes1 constant FLIPLEFTBUMPERS = "\x42";
-
     uint16 constant INITIAL_DATA_OFFSET = 0xff;
 
+    enum CommandName {
+        PULL,
+        TILT,
+        FLIPLEFT_POWERUP,
+        FLIPLEFT_BUMPERS,
+        FLIPRIGHT_SELECT,
+        FLIPRIGHT_COMPLETE
+    }
+
+    mapping (CommandName => bytes1) commandId;
+
     struct Command {
-        bytes1 id;
+        CommandName name;
         bytes2 data_offset;
         bytes2 data_length;
         bytes data;
@@ -42,28 +44,35 @@ contract Play {
     Command[] commands;
 
     constructor(Pinball _pinball) {
+        commandId[CommandName.PULL] = "\x01";
+        commandId[CommandName.TILT] = "\x02";
+        commandId[CommandName.FLIPLEFT_POWERUP] = "\x03";
+        commandId[CommandName.FLIPLEFT_BUMPERS] = "\x03";
+        commandId[CommandName.FLIPRIGHT_SELECT] = "\x04";
+        commandId[CommandName.FLIPRIGHT_COMPLETE] = "\x04";
+
         pinball = _pinball;
     }
 
-    function insertCoin() public {
-        initBall();
+    function insertCoin(uint8[100] memory data) public {
+        initBall(data);
         committedBlockNumber = block.number;
         pinball.insertCoins(keccak256(ball));
     }
 
-    function play() public {
-        pinball.play(ball, committedBlockNumber);
+    function play() public returns(uint) {
+        return pinball.play(ball, committedBlockNumber);
     }
 
 
-    function initBall() public {
+    function initBall(uint8[100] memory data) public {
         ball.push('P');
         ball.push('C');
         ball.push('T');
         ball.push('F');
 
         // COMMANDS
-        score_10652_commands();
+        dapptools_take_the_wheel_commands(data);
 
         // cmd offset
         pushBytes2(0x0008);
@@ -73,14 +82,10 @@ contract Play {
 
         // write out the commands
         for (uint i = 0; i < commands.length; i++) {
-            if (commands[i].id == FLIPLEFTBUMPERS) {
-                ball.push(FLIPLEFT);
-            } else {
-                ball.push(commands[i].id);
-            }
-
-            pushBytes2(commands[i].data_offset);
-            pushBytes2(commands[i].data_length);
+            Command memory command = commands[i];
+            ball.push(commandId[command.name]);
+            pushBytes2(command.data_offset);
+            pushBytes2(command.data_length);
         }
 
         // reserve the rest of the space
@@ -92,7 +97,7 @@ contract Play {
         for (uint i = 0; i < commands.length; i++) {
             Command memory command = commands[i];
 
-            if (command.id == FLIPLEFTBUMPERS) {
+            if (command.name == CommandName.FLIPLEFT_BUMPERS) {
                 writeBytes4(uint16(command.data_offset), BUMPERS_SELECTOR);
             } else {
                 writeBytes(uint16(command.data_offset), command.data);
@@ -105,6 +110,37 @@ contract Play {
     }
 
     // COMMAND CONFIGURATIONS
+
+    function dapptools_take_the_wheel_commands(uint8[100] memory data) internal {
+        uint offset = 0;
+        while (offset < data.length) {
+            CommandName commandName = CommandName(uint8(data[offset]));
+
+            if (commandName == CommandName.PULL) {
+                pull();
+            } else if (commandName == CommandName.TILT) {
+                uint tiltPrice = uint8(data[++offset]);
+                uint tiltAmount = uint8(data[++offset]);
+                tilt(tiltPrice, tiltAmount);
+            } else if (commandName == CommandName.FLIPLEFT_BUMPERS) {
+                flipLeftBumpers();
+            } else if (commandName == CommandName.FLIPLEFT_POWERUP) {
+                uint8 currentPowerup = uint8(data[++offset]);
+                uint location = uint8(data[++offset]);
+                flipLeftPowerUp(currentPowerup, location);
+            } else if (commandName == CommandName.FLIPRIGHT_SELECT) {
+                uint8 currentMission = uint8(data[++offset]);
+                uint location = uint8(data[++offset]);
+                // expected random does not seem to matter, why?
+                flipRightSelectMission(currentMission, location, /* expectedRandom */ 22292);
+            } else if (commandName == CommandName.FLIPRIGHT_COMPLETE) {
+                uint location = uint8(data[++offset]);
+                flipRightCompleteMission(location);
+            }
+
+            offset++;
+        }
+    }
 
     function score_3710_commands() internal {
         pull();
@@ -201,9 +237,9 @@ contract Play {
 
     // HELPER CORNER
 
-    function command(bytes1 id, uint16 data_offset, bytes memory data) internal  pure returns(Command memory) {
+    function command(CommandName name, uint16 data_offset, bytes memory data) internal  pure returns(Command memory) {
         return Command(
-            id,
+            name,
             bytes2(data_offset),
             bytes2(uint16(data.length)),
             data
@@ -218,12 +254,12 @@ contract Play {
         data[0] = bytes1(uint8(tiltPrice + 1));
         data[1] = bytes1(uint8(tiltAmount));
 
-        commands.push(command(TILT, nextDataOffset(), data));
+        commands.push(command(CommandName.TILT, nextDataOffset(), data));
     }
 
     function pull() internal {
         bytes memory empty;
-        commands.push(command(PULL, nextDataOffset(), empty));
+        commands.push(command(CommandName.PULL, nextDataOffset(), empty));
     }
 
     function flipRightSelectMission(
@@ -241,7 +277,7 @@ contract Play {
             uint32(expectedRandom));   // branch
         writeBytes32(data, 4, inputHash);
 
-        commands.push(command(FLIPRIGHT, nextDataOffset(), data));
+        commands.push(command(CommandName.FLIPRIGHT_SELECT, nextDataOffset(), data));
     }
 
     // 66 is the ideal location here to minimize skip
@@ -261,7 +297,7 @@ contract Play {
             writeBytes2(data, 4 + i * skip, bytes2(vector[i]));
         }
 
-        commands.push(command(FLIPRIGHT, nextDataOffset(), data));
+        commands.push(command(CommandName.FLIPRIGHT_COMPLETE, nextDataOffset(), data));
     }
 
     function flipLeftPowerUp(uint8 currentPowerup, uint location) internal {
@@ -281,14 +317,14 @@ contract Play {
             data[4 + i] = bytes1(uint8(0x65 + currentPowerup));
         }
 
-        commands.push(command(FLIPLEFT, nextDataOffset(), data));
+        commands.push(command(CommandName.FLIPLEFT_POWERUP, nextDataOffset(), data));
     }
 
     function flipLeftBumpers() internal {
         // need 4 bytes for the selector and 256 for the bumpers
         bytes memory empty;
         commands.push(Command(
-            FLIPLEFTBUMPERS,
+            CommandName.FLIPLEFT_BUMPERS,
             bytes2(uint16(0x00ff - 4)),
             bytes2(uint16(256 + 4)),
             empty
@@ -386,7 +422,7 @@ contract Play {
         }
 
         Command memory lastCommand = commands[commands.length - 1];
-        if (lastCommand.id == FLIPLEFTBUMPERS) {
+        if (lastCommand.name == CommandName.FLIPLEFT_BUMPERS) {
             // TODO: can we have multiple FLIPLEFTBUMPERS in a row? Don't think so
             lastCommand = commands[commands.length - 2];
         }

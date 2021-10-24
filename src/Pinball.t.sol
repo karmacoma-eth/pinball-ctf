@@ -31,11 +31,17 @@ contract PinballTest is DSTest {
     }
 
     function test_play() public {
-
-        play.insertCoin();
-
+        uint8[100] memory data;
+        play.insertCoin(data);
         hevm.roll(42);
-
         play.play();
+    }
+
+    function proveFail_can_reach_high_score(uint8[100] memory data) public {
+        play.insertCoin(data);
+        hevm.roll(42);
+        uint score = play.play();
+
+        assertGe(score, 2000);
     }
 }

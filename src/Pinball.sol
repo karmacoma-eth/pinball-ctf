@@ -2,6 +2,8 @@
  *Submitted for verification at Etherscan.io on 2021-10-21
 */
 
+// SPDX-License-Identifier: UNLICENSED
+
 pragma solidity 0.8.9;
 
 
@@ -109,7 +111,7 @@ contract Pinball {
         commitments[makeCommitmentHash(commitment, block.number)] = true;
     }
 
-    function play(bytes memory ball, uint blockNumber) external {
+    function play(bytes memory ball, uint blockNumber) external returns(uint) {
         bytes32 commitment = makeCommitmentHash(keccak256(ball), blockNumber);
         require(commitments[commitment], "you didn't insert any coins");
         require(block.number - blockNumber > 4, "please wait a bit after you insert your coins");
@@ -134,6 +136,8 @@ contract Pinball {
 
         emit NewScore(submissions.length, msg.sender, finalScore);
         submissions.push(submission);
+
+        return finalScore;
     }
 
     function tick(LibPinball.State memory state, uint commandNum) private returns (bool) {
