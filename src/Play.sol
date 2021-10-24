@@ -3,68 +3,56 @@ pragma solidity 0.8.9;
 import { Pinball } from "./Pinball.sol";
 
 contract Play {
-    event Log(uint);
+    bytes4 constant SELECT_MISSION_SELECTOR = 0x00e100ff;
+    bytes4 constant COMPLETE_MISSION_SELECTOR = 0xF00FC7C8;
+    bytes4 constant POWER_UP_SELECTOR = 0x01020304;
+    bytes4 constant BUMPERS_SELECTOR = 0x50407060;
 
-    bytes ball;
-    uint committedBlockNumber;
+    bytes32[] MISSION_HASHES = [
+        bytes32(0x38c56aa967695c50a998b7337e260fb29881ec07e0a0058ad892dcd973c016dc),
+        bytes32(0x8f038627eb6f3adaddcfcb0c86b53e4e175b1d16ede665306e59d9752c7b2767),
+        bytes32(0xfe7bec6d090ca50fa6998cf9b37c691deca00e1ab96f405c84eaa57895af7319),
+        bytes32(0x46453a3e029b77b65084452c82951b4126bd91b5592ef3b88a8822e8c59b02e8)
+    ];
 
-    Pinball immutable pinball;
+    bytes1 constant PULL = "\x01";
+    bytes1 constant TILT = "\x02";
+    bytes1 constant FLIPLEFT = "\x03";
+    bytes1 constant FLIPRIGHT = "\x04";
 
-    bytes1 PULL = "\x01";
-    bytes1 TILT = "\x02";
-    bytes1 FLIPRIGHT = "\x04";
-    bytes1 FLIPLEFT = "\x03";
+    // a virtual command that actually maps to FLIPLEFT
+    // this is because the data for bumpers is not adjacent with the data of the other commands
+    // (the second half of the ball is reserved for it)
+    bytes1 constant FLIPLEFTBUMPERS = "\x42";
+
+    uint16 constant INITIAL_DATA_OFFSET = 0xff;
 
     struct Command {
         bytes1 id;
         bytes2 data_offset;
         bytes2 data_length;
+        bytes data;
     }
 
+    event Log(uint);
+
+    bytes ball;
+    uint committedBlockNumber;
+    Pinball immutable pinball;
     Command[] commands;
 
     constructor(Pinball _pinball) {
         pinball = _pinball;
     }
 
-    function writeBytes2(uint offset, bytes2 value) private {
-        ball[offset + 0] = value[0];
-        ball[offset + 1] = value[1];
+    function insertCoin() public {
+        initBall();
+        committedBlockNumber = block.number;
+        pinball.insertCoins(keccak256(ball));
     }
 
-    function writeBytes4(uint offset, bytes4 value) private {
-        ball[offset + 0] = value[0];
-        ball[offset + 1] = value[1];
-        ball[offset + 2] = value[2];
-        ball[offset + 3] = value[3];
-    }
-
-    function writeBytes32(uint offset, bytes32 value) private {
-        for (uint i = 0; i < value.length; i += 1) {
-            ball[offset + i] = value[i];
-        }
-    }
-
-    function pushBytes2(bytes2 value) private {
-        ball.push(value[0]);
-        ball.push(value[1]);
-    }
-
-    function getInputHash(bytes32 desiredHash, bytes32 part, uint32 branch) pure public returns(bytes32) {
-        bytes32 hash = desiredHash;
-        for (uint i = 0; i < 32; i++) {
-            if (branch & 0x1 == 0x1)
-                hash ^= part;
-            branch >> 1;
-            part << 8;
-        }
-
-        return hash;
-    }
-
-    function nextDataOffset() private returns(bytes2) {
-        Command memory lastCommand = commands[commands.length - 1];
-        return bytes2(uint16(lastCommand.data_offset) + uint16(lastCommand.data_length));
+    function play() public {
+        pinball.play(ball, committedBlockNumber);
     }
 
     function initBall() public {
@@ -73,54 +61,30 @@ contract Play {
         ball.push('T');
         ball.push('F');
 
-        commands.push(Command(
-            PULL,
-            0x0000,
-            0x0000
-        ));
+        // COMMANDS
+        pull();
 
-        commands.push(Command(
-            FLIPRIGHT,
-            0x00ff, // data offset
-            0x0000
-        ));
+        flipRightSelectMission(
+            0,    // currentMission
+            0x43, // expected location
+            22292 // expected random
+        );
 
-        commands.push(Command(
-            FLIPLEFT,
-            0x0123, // data offset
-            0x000e
-        ));
+        flipLeftPowerUp();
 
-        bytes2 tiltDataOffset = nextDataOffset();
-        commands.push(Command(
-            TILT,
-            tiltDataOffset,
-            0x0002
-        ));
+        // ! \\ tiltPrice is 0x48!
+        // setting tiltAmount so that we land at position 66, which gives us a skip of 3
+        tilt(0x48, 8);
 
-        bytes2 fliprightDataOffset2 = nextDataOffset();
-        commands.push(Command(
-            FLIPRIGHT,
-            fliprightDataOffset2,
-            0x0022
-        ));
+        flipRightCompleteMission(66);
 
-        bytes2 fliprightDataOffset3 = nextDataOffset();
+        flipLeftBumpers();
 
-        // bytes2 flipleftDataOffset2 = nextDataOffset();
-        // need 4 bytes for the selector and 256 for the bumpers
-        bytes2 flipleftDataOffset2 = 0x00fb; // 0xff - 4
-        commands.push(Command(
-            FLIPLEFT,
-            flipleftDataOffset2, // data offset
-            0x0104  // 256 + 4
-        ));
-
-        commands.push(Command(
-            FLIPRIGHT,
-            fliprightDataOffset3,
-            0x0024  // selector + 32 byte hash
-        ));
+        flipRightSelectMission(
+            1,    // currentMission
+            0x47, // expected location
+            22292 // expected random
+        );
 
         // cmd offset
         pushBytes2(0x0008);
@@ -128,60 +92,33 @@ contract Play {
         // cmd len
         pushBytes2(bytes2(uint16(commands.length)));
 
+        // write out the commands
         for (uint i = 0; i < commands.length; i++) {
-            ball.push(commands[i].id);
+            if (commands[i].id == FLIPLEFTBUMPERS) {
+                ball.push(FLIPLEFT);
+            } else {
+                ball.push(commands[i].id);
+            }
+
             pushBytes2(commands[i].data_offset);
             pushBytes2(commands[i].data_length);
         }
 
+        // reserve the rest of the space
         while (ball.length < 512) {
             ball.push("\x00");
         }
 
-        // data
-        writeBytes4(0xff, 0x00e100ff); // selector
+        // write out the data
+        for (uint i = 0; i < commands.length; i++) {
+            Command memory command = commands[i];
 
-        bytes32 mission1Hash = 0x38c56aa967695c50a998b7337e260fb29881ec07e0a0058ad892dcd973c016dc;
-        bytes32 inputHash = getInputHash(
-            mission1Hash,
-            0x0000000000000000000000000000000000000000000000000000000000000043, // part
-            22292); // branch
-        writeBytes32(0xff + 4, inputHash);
-
-        // data for flipleft
-        writeBytes4(0x123, 0x01020304);
-        for (uint i = 0; i < 10; i += 1) {
-            ball[0x127 + i] = "\x65";
+            if (command.id == FLIPLEFTBUMPERS) {
+                writeBytes4(uint16(command.data_offset), BUMPERS_SELECTOR);
+            } else {
+                writeBytes(uint16(command.data_offset), command.data);
+            }
         }
-
-        // data for tilt
-        // tiltPrice is 0x48
-        // setting tiltAmount so that we land at position 66, which gives us a skip of 3
-        writeBytes2(uint16(tiltDataOffset), 0x4908);
-
-        // data for 2nd flip right
-        writeBytes4(uint16(fliprightDataOffset2), 0xF00FC7C8); // selector
-
-        // the accumulator that will let us complete the mission
-        uint skip = 3;
-        uint16[10] memory vector = [10, 6199, 41583, 35825, 48675, 54170, 30503, 57883, 63389, 60369];
-
-        for (uint i = 0; i < 10; i += 1) {
-            writeBytes2(uint16(fliprightDataOffset2) + 4 + i * skip, bytes2(vector[i]));
-        }
-
-        // data for 2nd flip left
-        writeBytes4(uint16(flipleftDataOffset2), 0x50407060); // bumpers!
-
-        // data for 3rd right flip (select mission 2)
-        writeBytes4(uint16(fliprightDataOffset3), 0x00e100ff); // selector
-        bytes32 mission2Hash = 0x8f038627eb6f3adaddcfcb0c86b53e4e175b1d16ede665306e59d9752c7b2767;
-        bytes32 inputHash2 = getInputHash(
-            mission2Hash,
-            0x0000000000000000000000000000000000000000000000000000000000000047, // part
-            22292); // branch
-        writeBytes32(uint16(fliprightDataOffset3) + 4, inputHash2);
-
 
         // finalize the second half of the ball for BUMPERS
         uint expectedLocationAtBumpers = 0;
@@ -213,13 +150,161 @@ contract Play {
         }
     }
 
-    function insertCoin() public {
-        initBall();
-        committedBlockNumber = block.number;
-        pinball.insertCoins(keccak256(ball));
+
+    // HELPER CORNER
+
+    function command(bytes1 id, uint16 data_offset, bytes memory data) internal  pure returns(Command memory) {
+        return Command(
+            id,
+            bytes2(data_offset),
+            bytes2(uint16(data.length)),
+            data
+        );
     }
 
-    function play() public {
-        pinball.play(ball, committedBlockNumber);
+    function tilt(
+        uint tiltPrice,
+        uint tiltAmount
+    ) internal {
+        bytes memory data = new bytes(2);
+        data[0] = bytes1(uint8(tiltPrice + 1));
+        data[1] = bytes1(uint8(tiltAmount));
+
+        commands.push(command(TILT, nextDataOffset(), data));
+    }
+
+    function pull() internal {
+        bytes memory empty;
+        commands.push(command(PULL, nextDataOffset(), empty));
+    }
+
+    function flipRightSelectMission(
+        uint currentMission,
+        uint expectedLocation,
+        uint expectedRandom
+    ) internal {
+        bytes memory data = new bytes(36);
+
+        writeBytes4(data, 0, SELECT_MISSION_SELECTOR);
+
+        bytes32 inputHash = getInputHash(
+            MISSION_HASHES[currentMission],
+            bytes32(expectedLocation), // part
+            uint32(expectedRandom));   // branch
+        writeBytes32(data, 4, inputHash);
+
+        commands.push(command(FLIPRIGHT, nextDataOffset(), data));
+    }
+
+    function flipRightCompleteMission(
+        uint expectedLocation
+    ) internal {
+        bytes memory data = new bytes(36);
+
+        writeBytes4(data, 0, COMPLETE_MISSION_SELECTOR);
+
+        // the accumulator that will let us complete the mission
+        uint skip = 3 * (expectedLocation - 65);
+        uint16[10] memory vector = [10, 6199, 41583, 35825, 48675, 54170, 30503, 57883, 63389, 60369];
+
+        for (uint i = 0; i < 10; i += 1) {
+            writeBytes2(data, 4 + i * skip, bytes2(vector[i]));
+        }
+
+        commands.push(command(FLIPRIGHT, nextDataOffset(), data));
+    }
+
+    function flipLeftPowerUp() internal {
+        bytes memory data = new bytes(14);
+
+        writeBytes4(data, 0, POWER_UP_SELECTOR);
+        for (uint i = 0; i < 10; i += 1) {
+            data[4 + i] = "\x65";
+        }
+
+        commands.push(command(FLIPLEFT, nextDataOffset(), data));
+    }
+
+    function flipLeftBumpers() internal {
+        // need 4 bytes for the selector and 256 for the bumpers
+        bytes memory empty;
+        commands.push(Command(
+            FLIPLEFTBUMPERS,
+            bytes2(uint16(0x00ff - 4)),
+            bytes2(uint16(256 + 4)),
+            empty
+        ));
+    }
+
+    function writeBytes2(bytes memory data, uint offset, bytes2 value) pure private {
+        data[offset + 0] = value[0];
+        data[offset + 1] = value[1];
+    }
+
+    function writeBytes2(uint offset, bytes2 value) private {
+        ball[offset + 0] = value[0];
+        ball[offset + 1] = value[1];
+    }
+
+    function writeBytes4(bytes memory data, uint offset, bytes4 value) pure private {
+        data[offset + 0] = value[0];
+        data[offset + 1] = value[1];
+        data[offset + 2] = value[2];
+        data[offset + 3] = value[3];
+    }
+
+    function writeBytes4(uint offset, bytes4 value) private {
+        ball[offset + 0] = value[0];
+        ball[offset + 1] = value[1];
+        ball[offset + 2] = value[2];
+        ball[offset + 3] = value[3];
+    }
+
+    function writeBytes32(bytes memory data, uint offset, bytes32 value) pure private {
+        for (uint i = 0; i < value.length; i += 1) {
+            data[offset + i] = value[i];
+        }
+    }
+
+    function writeBytes32(uint offset, bytes32 value) private {
+        for (uint i = 0; i < value.length; i += 1) {
+            ball[offset + i] = value[i];
+        }
+    }
+
+    function writeBytes(uint offset, bytes memory value) private {
+        for (uint i = 0; i < value.length; i += 1) {
+            ball[offset + i] = value[i];
+        }
+    }
+
+    function pushBytes2(bytes2 value) private {
+        ball.push(value[0]);
+        ball.push(value[1]);
+    }
+
+    function getInputHash(bytes32 desiredHash, bytes32 part, uint32 branch) pure public returns(bytes32) {
+        bytes32 hash = desiredHash;
+        for (uint i = 0; i < 32; i++) {
+            if (branch & 0x1 == 0x1)
+                hash ^= part;
+            branch >> 1;
+            part << 8;
+        }
+
+        return hash;
+    }
+
+    function nextDataOffset() private view returns(uint16) {
+        if (commands.length == 0) {
+            return INITIAL_DATA_OFFSET;
+        }
+
+        Command memory lastCommand = commands[commands.length - 1];
+        if (lastCommand.id == FLIPLEFTBUMPERS) {
+            // TODO: can we have multiple FLIPLEFTBUMPERS in a row? Don't think so
+            lastCommand = commands[commands.length - 2];
+        }
+        return uint16(lastCommand.data_offset) + uint16(lastCommand.data_length);
     }
 }
