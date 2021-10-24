@@ -55,6 +55,7 @@ contract Play {
         pinball.play(ball, committedBlockNumber);
     }
 
+
     function initBall() public {
         ball.push('P');
         ball.push('C');
@@ -62,29 +63,7 @@ contract Play {
         ball.push('F');
 
         // COMMANDS
-        pull();
-
-        flipRightSelectMission(
-            0,    // currentMission
-            0x43, // expected location
-            22292 // expected random
-        );
-
-        flipLeftPowerUp();
-
-        // ! \\ tiltPrice is 0x48!
-        // setting tiltAmount so that we land at position 66, which gives us a skip of 3
-        tilt(0x48, 8);
-
-        flipRightCompleteMission(66);
-
-        flipLeftBumpers();
-
-        flipRightSelectMission(
-            1,    // currentMission
-            0x47, // expected location
-            22292 // expected random
-        );
+        score_10652_commands();
 
         // cmd offset
         pushBytes2(0x0008);
@@ -125,29 +104,98 @@ contract Play {
         prepareBallForBumpers(0x100, expectedLocationAtBumpers);
     }
 
-    function countBumpers(uint offset, uint expectedLocationAtBumpers) private returns(uint) {
-        uint bumpers = 0;
+    // COMMAND CONFIGURATIONS
 
-        // count the number in the current configuration
-        for (uint i = 0; i < 256; i++) {
-            if (uint8(ball[offset + i]) == expectedLocationAtBumpers) {
-                bumpers++;
-            }
-        }
+    function score_3710_commands() internal {
+        pull();
 
-        emit Log(bumpers);
-        return bumpers;
+        flipRightSelectMission(
+            0,    // currentMission
+            77,   // expected location
+            22292 // expected random
+        );        // location 26 after this
+
+        tilt(58, 10);
+
+        flipLeftPowerUp(0, 26); // location 72 after this
+
+        // flipRightCompleteMission(72); // not ideal, we should be closer to 66
+
+        tilt(34, 10);
+
+        flipRightSelectMission(0, 82, 0); // just to get a new location -> 39
+
+        tilt(60, 10); // game over
     }
 
-    function prepareBallForBumpers(uint offset, uint expectedLocationAtBumpers) private {
-        // we need exactly 64
-        uint bumpers = countBumpers(offset, expectedLocationAtBumpers);
-        require(bumpers >= 64, "not enough bumpers!");
 
-        // fill the end of the buffer until we get to the number we want
-        for (uint i = 0; i <= (bumpers - 64); i++) {
-            ball[offset + 256 - 1 - i] = 0x42;
-        }
+    function score_6770_commands() internal {
+        pull();
+
+        flipRightSelectMission(
+            0,    // currentMission
+            77,   // expected location
+            22292 // expected random
+        );        // location 26 after this
+
+        tilt(58, 10);
+
+        flipLeftPowerUp(0, 26);
+
+        flipRightSelectMission(0, 72, 0); // just to get a new location -> 34
+
+        tilt(39, 24);
+
+        // got to have location as small as possible!
+        // that's 100 bytes of data, yikes
+        flipLeftPowerUp(1, 10); // new location is 60, yikes again
+
+        tilt(75, 10); // game over
+    }
+
+
+    function score_1600_commands() internal {
+        pull();
+
+        tilt(92, 10); // ! \\
+
+        flipRightSelectMission(
+            0,    // currentMission
+            77,   // expected location
+            22292 // expected random
+        );
+
+        tilt(72, 10); // game over
+    }
+
+
+    function score_10652_commands() internal {
+        pull();
+
+        flipRightSelectMission(
+            0,    // currentMission
+            0x43, // expected location
+            22292 // expected random
+        );
+
+        flipLeftPowerUp(0, 26);
+
+        // ! \\ tiltPrice is 0x48!
+        // setting tiltAmount so that we land at position 66, which gives us a skip of 3
+        tilt(0x48, 8);
+
+        flipRightCompleteMission(66);
+
+        flipLeftBumpers();
+
+        flipRightSelectMission(
+            1,    // currentMission
+            0x47, // expected location
+            22292 // expected random
+        );
+
+        // tilt price is 97 -> game over
+        tilt(97, 1);
     }
 
 
@@ -196,15 +244,17 @@ contract Play {
         commands.push(command(FLIPRIGHT, nextDataOffset(), data));
     }
 
+    // 66 is the ideal location here to minimize skip
     function flipRightCompleteMission(
         uint expectedLocation
     ) internal {
-        bytes memory data = new bytes(36);
+        uint skip = 3 * (expectedLocation - 65);
+
+        bytes memory data = new bytes(4 + 10 * skip);
 
         writeBytes4(data, 0, COMPLETE_MISSION_SELECTOR);
 
         // the accumulator that will let us complete the mission
-        uint skip = 3 * (expectedLocation - 65);
         uint16[10] memory vector = [10, 6199, 41583, 35825, 48675, 54170, 30503, 57883, 63389, 60369];
 
         for (uint i = 0; i < 10; i += 1) {
@@ -214,12 +264,21 @@ contract Play {
         commands.push(command(FLIPRIGHT, nextDataOffset(), data));
     }
 
-    function flipLeftPowerUp() internal {
-        bytes memory data = new bytes(14);
+    function flipLeftPowerUp(uint8 currentPowerup, uint location) internal {
+        uint checkAmount = 0;
+        if (currentPowerup == 0) {
+            checkAmount = 10;
+        } else if (currentPowerup == 1) {
+            checkAmount = 10 * location;
+        } else if (currentPowerup == 2) {
+            checkAmount = 10 ** location;
+        }
 
+        bytes memory data = new bytes(4 + checkAmount);
         writeBytes4(data, 0, POWER_UP_SELECTOR);
-        for (uint i = 0; i < 10; i += 1) {
-            data[4 + i] = "\x65";
+
+        for (uint i = 0; i < checkAmount; i += 1) {
+            data[4 + i] = bytes1(uint8(0x65 + currentPowerup));
         }
 
         commands.push(command(FLIPLEFT, nextDataOffset(), data));
@@ -235,6 +294,32 @@ contract Play {
             empty
         ));
     }
+
+    function countBumpers(uint offset, uint expectedLocationAtBumpers) private returns(uint) {
+        uint bumpers = 0;
+
+        // count the number in the current configuration
+        for (uint i = 0; i < 256; i++) {
+            if (uint8(ball[offset + i]) == expectedLocationAtBumpers) {
+                bumpers++;
+            }
+        }
+
+        emit Log(bumpers);
+        return bumpers;
+    }
+
+    function prepareBallForBumpers(uint offset, uint expectedLocationAtBumpers) private {
+        // we need exactly 64
+        uint bumpers = countBumpers(offset, expectedLocationAtBumpers);
+        require(bumpers >= 64, "not enough bumpers!");
+
+        // fill the end of the buffer until we get to the number we want
+        for (uint i = 0; i <= (bumpers - 64); i++) {
+            ball[offset + 256 - 1 - i] = 0x42;
+        }
+    }
+
 
     function writeBytes2(bytes memory data, uint offset, bytes2 value) pure private {
         data[offset + 0] = value[0];
