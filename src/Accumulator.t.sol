@@ -16,14 +16,14 @@ contract AccumulatorTest is DSTest {
         require(accumulator == 0x020c020c, "incorrect accumulator");
     }
 
-    function proveFail_weShallActuallyPass(uint16[10] memory inputs) public {
-        youShallNotPass(inputs);
-    }
+    // function proveFail_weShallActuallyPass(uint16[10] memory inputs) public {
+    //     youShallNotPass(inputs);
+    // }
 
-    function proveFail_weShallActuallyPassWithConstraints(uint16[10] memory inputs) public {
-        // require(inputs[0] == 0x0104); // <--- can't get this constraint to be satisfied
-        require(inputs[1] == 1);
-        require(inputs[2] & 0xff00 == 0xff00);
-        youShallNotPass(inputs);
-    }
+    // function proveFail_weShallActuallyPassWithConstraints(uint16[10] memory inputs) public {
+    //     // require(inputs[0] == 0x0104); // <--- can't get this constraint to be satisfied
+    //     require(inputs[1] == 1);
+    //     require(inputs[2] & 0xff00 == 0xff00);
+    //     youShallNotPass(inputs);
+    // }
 }

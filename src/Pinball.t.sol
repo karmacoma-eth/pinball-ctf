@@ -3,7 +3,7 @@ pragma solidity ^0.8.9;
 
 import "ds-test/test.sol";
 
-import "./Pinball.sol";
+// import "./Pinball.sol";
 import "./Play.sol";
 
 // using https://kndrck.co/posts/hevm_seth_cheatsheet/
